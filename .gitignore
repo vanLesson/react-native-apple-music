@@ -11,6 +11,5 @@ example/ios/Pods
 example/ios/Podfile.lock
 example/ios/.xcode.env.local
 build
-#lib
 cache
 .env.*

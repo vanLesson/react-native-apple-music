@@ -36,6 +36,72 @@ class MusicModule: RCTEventEmitter {
           }
       }
 
+    @available(iOS 16.0, *)
+    @objc(getPlaylists:rejecter:)
+    func getPlaylists(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        Task {
+            do {
+                let request = MusicLibraryRequest<Playlist>()
+                let response = try await request.response()
+                var playlistsArray: [[String: Any]] = []
+
+                for playlist in response.items {
+                    let detailedPlaylist = try await playlist.with([.tracks])
+                    let trackCount = detailedPlaylist.tracks?.count ?? 0
+
+                    let playlistDict = self.convertPlaylistToDictionary(detailedPlaylist, trackCount: trackCount)
+                    playlistsArray.append(playlistDict)
+                }
+
+                resolve(playlistsArray)
+            } catch {
+                reject("ERROR", "Failed to get playlists: \(error)", error)
+            }
+        }
+    }
+
+
+
+
+    func convertPlaylistToDictionary(_ playlist: Playlist, trackCount: Int) -> [String: Any] {
+        var artworkUrlString: String = ""
+
+                if let artwork = playlist.artwork {
+                    let artworkUrl = artwork.url(width: 200, height: 200)
+                    artworkUrlString = artworkUrl?.absoluteString ?? ""
+                }
+
+        return [
+            "id": String(describing: playlist.id),
+            "name": playlist.name,
+            "artworkUrl": artworkUrlString,
+            "trackCount": trackCount
+        ]
+    }
+
+
+
+
+
+    @objc(requestLibraryAuthorization:rejecter:)
+        func requestLibraryAuthorization(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+            Task {
+                let status = await MusicAuthorization.request()
+                switch status {
+                case .authorized:
+                    resolve("authorized")
+                case .denied:
+                    resolve("denied")
+                case .restricted:
+                    resolve("restricted")
+                case .notDetermined:
+                    resolve("notDetermined")
+                @unknown default:
+                    resolve("unknown")
+                }
+            }
+        }
+
   private func sendCurrentSongUpdate() {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
           guard let self = self else { return }
@@ -435,6 +501,7 @@ class MusicModule: RCTEventEmitter {
         }
     }
 
+    @available(iOS 16.0, *)
     @objc(setPlaybackQueue:type:resolver:rejecter:)
     func setPlaybackQueue(_ itemId: String, type: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
         Task {
@@ -476,20 +543,41 @@ class MusicModule: RCTEventEmitter {
                         return
 
                     case .playlist(let request):
-                        // Use request for playlist type
-                        let response = try await request.response()
+                        if itemId.hasPrefix("p.") {
+                            // Плейліст з особистої бібліотеки
+                            var libraryRequest = MusicLibraryRequest<Playlist>()
+                            libraryRequest.filter(matching: \.id, equalTo: musicItemId)
 
-                        guard let tracksToBeAdded = response.items.first else { return }
+                            do {
+                                let response = try await libraryRequest.response()
+                                if let playlist = response.items.first {
+                                    let player = SystemMusicPlayer.shared // Забезпечуємо доступність змінної 'player'
+                                    player.queue = [playlist]
+                                    try await player.prepareToPlay()
+                                    resolve("Library playlist added to queue")
+                                } else {
+                                    reject("ERROR", "Playlist not found in library", nil)
+                                }
+                            } catch {
+                                reject("ERROR", "Failed to load library playlist: \(error)", error)
+                            }
+                        } else {
+                            // Плейліст з каталогу Apple Music
+                            do {
+                                let response = try await request.response()
+                                let player = SystemMusicPlayer.shared // Забезпечуємо доступність змінної 'player'
+                                if let playlist = response.items.first {
+                                    player.queue = [playlist]
+                                    try await player.prepareToPlay()
+                                    resolve("Catalog playlist added to queue")
+                                } else {
+                                    reject("ERROR", "Playlist not found in catalog", nil)
+                                }
+                            } catch {
+                                reject("ERROR", "Failed to load catalog playlist: \(error)", error)
+                            }
+                        }
 
-                        let player = SystemMusicPlayer.shared
-
-                        player.queue = [tracksToBeAdded] /// <- directly add items to the queue
-
-                        try await player.prepareToPlay()
-
-                        resolve("Playlist is added to queue")
-
-                        return
 
                     case .station(let request):
                         // Use request for station type

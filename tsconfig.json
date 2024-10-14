@@ -32,13 +32,13 @@
     "strict": false,
     "pretty": true,
     "useDefineForClassFields": true,
-    "baseUrl": "./src",
+    "baseUrl": "./src_origin",
     "paths": {},
     "jsx": "react-native"
   },
   "exclude": [
     "node_modules",
-    "lib",
+    "src",
     "scripts",
     "commitlint.config.js",
     "rollup.config.mjs"
